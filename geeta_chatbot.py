@@ -1,10 +1,13 @@
 import streamlit as st
+import os
 from langchain_openai import OpenAI
 from langchain.chains import RetrievalQA
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
 from sentence_transformers import SentenceTransformer
 from langchain.embeddings.base import Embeddings
+import PyPDF2
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # Custom embedding class for SentenceTransformer
 class SentenceTransformerEmbeddings(Embeddings):
@@ -17,9 +20,26 @@ class SentenceTransformerEmbeddings(Embeddings):
     def embed_query(self, text):
         return self.model.encode([text])[0].tolist()
 
-# Replace with your OpenAI API key
-llm = OpenAI(api_key="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")  # Paste your API key here
+# Check if geeta_index exists, else generate it
+if not os.path.exists("geeta_index"):
+    pdf_path = "Holy_Geeta.pdf"  # PDF must be in the repository root
+    try:
+        with open(pdf_path, "rb") as file:
+            reader = PyPDF2.PdfReader(file)
+            text = "".join(page.extract_text() for page in reader.pages)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        chunks = splitter.split_text(text)
+        model = SentenceTransformerEmbeddings("all-MiniLM-L6-v2")
+        vector_store = FAISS.from_texts(chunks, embedding=model)
+        vector_store.save_local("geeta_index")
+    except FileNotFoundError:
+        st.error("Holy_Geeta.pdf not found in the repository. Please upload it.")
+        st.stop()
 
+# Initialize LLM with OpenAI API key from secrets
+llm = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
+# Load vector store
 model = SentenceTransformerEmbeddings("all-MiniLM-L6-v2")
 vector_store = FAISS.load_local("geeta_index", embeddings=model, allow_dangerous_deserialization=True)
 
@@ -29,7 +49,7 @@ prompt_template = PromptTemplate(
     template="""
     You are a chatbot that answers questions based only on *The Holy Geeta* by Swami Chinmayananda. 
     Use only the provided context: {context}. 
-    Answer the question: {question} concisely, citing specific chapters and verses (e.g., Chapter 2, Verse 47) when possible. 
+    Answer the question: {question} in a concise manner, citing specific chapters and verses (e.g., Chapter 2, Verse 47) when possible. 
     If the answer is not in the context, say, “This is not covered in *The Holy Geeta*.” 
     Do not use external knowledge.
     """
